@@ -20,12 +20,6 @@ const ACTIVE_SCANNER_KEY = 'panda_active_scanner';
 // Public sync endpoints using KVDB key-value storage
 const SYNC_URL = 'https://kvdb.io/panda_sync_dex_workspace_98242/checkins_v1';
 
-// Setup default mock records
-const DEFAULT_MOCK_CHECKINS: CheckinRecord[] = [
-  { id: 'c1', name: 'Sarah Chen', rollNumber: 'CS2023-085', timestamp: new Date(Date.now() - 120000).toISOString(), scannerId: 'sc-mock-1' },
-  { id: 'c2', name: 'Liam Rodriguez', rollNumber: 'ROB2023-012', timestamp: new Date(Date.now() - 300000).toISOString(), scannerId: 'sc-mock-1' },
-  { id: 'c3', name: 'Emily Watson', rollNumber: 'FIN2024-045', timestamp: new Date(Date.now() - 600000).toISOString(), scannerId: 'sc-mock-0' }
-];
 
 type Listener = () => void;
 const listeners = new Set<Listener>();
@@ -35,13 +29,19 @@ export const checkinStore = {
   getCheckins(): CheckinRecord[] {
     const data = localStorage.getItem(CHECKINS_KEY);
     if (!data) {
-      localStorage.setItem(CHECKINS_KEY, JSON.stringify(DEFAULT_MOCK_CHECKINS));
-      return DEFAULT_MOCK_CHECKINS;
+      localStorage.setItem(CHECKINS_KEY, JSON.stringify([]));
+      return [];
     }
     try {
-      return JSON.parse(data);
+      const parsed: CheckinRecord[] = JSON.parse(data);
+      // Filter out any mock checkins (whose ids are 'c1', 'c2', 'c3')
+      const filtered = parsed.filter(r => !['c1', 'c2', 'c3'].includes(r.id));
+      if (filtered.length !== parsed.length) {
+        localStorage.setItem(CHECKINS_KEY, JSON.stringify(filtered));
+      }
+      return filtered;
     } catch {
-      return DEFAULT_MOCK_CHECKINS;
+      return [];
     }
   },
 
@@ -79,6 +79,24 @@ export const checkinStore = {
       codeValue: `PANDA-SEC-${randomHash}`
     };
     localStorage.setItem(ACTIVE_SCANNER_KEY, JSON.stringify(newScanner));
+
+    // Also push to active scanner history list in localStorage to allow validation of recently rotated codes
+    const historyData = localStorage.getItem('panda_scanner_history');
+    let history: ScannerState[] = [];
+    if (historyData) {
+      try {
+        history = JSON.parse(historyData);
+      } catch {
+        history = [];
+      }
+    }
+    history.push(newScanner);
+    // Keep only the last 10 entries
+    if (history.length > 10) {
+      history = history.slice(history.length - 10);
+    }
+    localStorage.setItem('panda_scanner_history', JSON.stringify(history));
+
     this.notify();
     return newScanner;
   },
@@ -131,23 +149,47 @@ export const checkinStore = {
 
   // Submit checkin form
   addCheckin(name: string, rollNumber: string, scannerIdOrCode: string): { success: boolean; error?: string } {
-    const scanner = this.getActiveScanner();
     const isMock = scannerIdOrCode.startsWith('sc-mock');
-    const matchesCurrent = isMock || scanner.id === scannerIdOrCode || scanner.codeValue === scannerIdOrCode;
+    if (isMock) {
+      return this.processCheckinRecord(name, rollNumber, scannerIdOrCode);
+    }
 
-    if (!matchesCurrent) {
+    // Load scanner history to check if the code/ID corresponds to a valid session
+    const historyData = localStorage.getItem('panda_scanner_history');
+    let history: ScannerState[] = [];
+    if (historyData) {
+      try {
+        history = JSON.parse(historyData);
+      } catch {
+        history = [];
+      }
+    }
+
+    // Include the current active scanner too
+    const active = this.getActiveScanner();
+    if (active && !history.some(h => h.id === active.id)) {
+      history.push(active);
+    }
+
+    // Find the scanner session that matches the scannerIdOrCode
+    const matchedScanner = history.find(h => h.id === scannerIdOrCode || h.codeValue === scannerIdOrCode);
+
+    if (!matchedScanner) {
       return { success: false, error: 'Scanner session has expired. Please scan the current code.' };
     }
-    if (Date.now() > scanner.expiresAt && !isMock) {
-      this.generateNewScanner();
+
+    if (Date.now() > matchedScanner.expiresAt) {
       return { success: false, error: 'The ticket has expired. Re-scanning new ticket...' };
     }
 
+    return this.processCheckinRecord(name, rollNumber, matchedScanner.id);
+  },
+
+  processCheckinRecord(name: string, rollNumber: string, scannerId: string): { success: boolean; error?: string } {
     const records = this.getCheckins();
-    const targetScannerId = isMock ? scannerIdOrCode : scanner.id;
     
     // Duplicate check
-    const duplicate = records.find(r => r.rollNumber.trim().toLowerCase() === rollNumber.trim().toLowerCase() && r.scannerId === targetScannerId);
+    const duplicate = records.find(r => r.rollNumber.trim().toLowerCase() === rollNumber.trim().toLowerCase() && r.scannerId === scannerId);
     if (duplicate) {
       return { success: false, error: `Roll Number ${rollNumber} has already checked in for this session.` };
     }
@@ -157,7 +199,7 @@ export const checkinStore = {
       name: name.trim(),
       rollNumber: rollNumber.trim().toUpperCase(),
       timestamp: new Date().toISOString(),
-      scannerId: targetScannerId
+      scannerId
     };
 
     const updated = [newRecord, ...records];
