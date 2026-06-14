@@ -28,19 +28,20 @@ export const AttendanceSection: React.FC<AttendanceSectionProps> = ({ onBack }) 
       setActiveScanner(checkinStore.getActiveScanner());
     });
 
-    const syncCloud = () => {
-      checkinStore.fetchCloudCheckins();
+    // Fetch from cloud immediately, then every 2 seconds
+    const syncCloud = async () => {
+      await checkinStore.fetchCloudCheckins();
     };
 
     syncCloud();
-    
-    const cloudInterval = setInterval(syncCloud, 4000);
+    const cloudInterval = setInterval(syncCloud, 2000);
 
     return () => {
       unsubscribe();
       clearInterval(cloudInterval);
     };
   }, []);
+
 
   return (
     <section id="attendance" className="relative w-full min-h-screen py-16 bg-[#F8F9FA] overflow-hidden">
