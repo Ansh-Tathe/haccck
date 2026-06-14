@@ -1,3 +1,18 @@
+import {
+  collection,
+  doc,
+  setDoc,
+  getDocs,
+  onSnapshot,
+  deleteDoc,
+  query,
+  orderBy,
+  Unsubscribe,
+} from 'firebase/firestore';
+import { db } from './firebase';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
 export interface CheckinRecord {
   id: string;
   name: string;
@@ -11,46 +26,32 @@ export interface ScannerState {
   codeValue: string;
 }
 
-// ─── Storage Keys ─────────────────────────────────────────────────────────────
-const CHECKINS_KEY = 'panda_checkins_data';
+// ─── Local Storage Keys ───────────────────────────────────────────────────────
 const ACTIVE_SCANNER_KEY = 'panda_active_scanner';
-
-// ─── Cloud Sync (valid KVDB bucket) ──────────────────────────────────────────
-// Bucket created: 7oz4UxWDPzWnan4AfeRdFu
-const SYNC_BASE = 'https://kvdb.io/7oz4UxWDPzWnan4AfeRdFu';
-const SYNC_URL = `${SYNC_BASE}/checkins_v2`;
-
 const FIXED_SCANNER_ID = 'sc-stable';
 
-// ─── Pub / Sub ────────────────────────────────────────────────────────────────
+// ─── Firestore Collection ─────────────────────────────────────────────────────
+const CHECKINS_COLLECTION = 'checkins';
+
+// ─── Pub/Sub ──────────────────────────────────────────────────────────────────
 type Listener = () => void;
 const listeners = new Set<Listener>();
 
-// Listen for localStorage changes made in OTHER tabs (student → teacher sync
-// when both are on the same browser/device).
-if (typeof window !== 'undefined') {
-  window.addEventListener('storage', (e) => {
-    if (e.key === CHECKINS_KEY) {
-      // Another tab wrote to checkins — notify all subscribers
-      listeners.forEach((l) => l());
-    }
-  });
-}
+// In-memory cache of checkins (kept fresh by the Firestore real-time listener)
+let _cachedCheckins: CheckinRecord[] = [];
+let _firestoreUnsub: Unsubscribe | null = null;
 
 // ─── Store ────────────────────────────────────────────────────────────────────
 export const checkinStore = {
-  // ── Scanner ─────────────────────────────────────────────────────────────────
+  // ── Scanner (still uses localStorage — only teacher device needs this) ───────
 
-  /** Returns the persistent scanner, creating it once if missing. */
   getActiveScanner(): ScannerState {
     const data = localStorage.getItem(ACTIVE_SCANNER_KEY);
     if (data) {
       try {
         const parsed = JSON.parse(data) as ScannerState;
         if (parsed.id && parsed.codeValue) return parsed;
-      } catch {
-        /* fall through */
-      }
+      } catch { /* fall through */ }
     }
     return this._createScanner();
   },
@@ -66,158 +67,121 @@ export const checkinStore = {
     return scanner;
   },
 
-  // ── Local checkins ──────────────────────────────────────────────────────────
+  // ── Real-time listener ────────────────────────────────────────────────────────
 
-  getCheckins(): CheckinRecord[] {
-    const data = localStorage.getItem(CHECKINS_KEY);
-    if (!data) return [];
-    try {
-      const parsed: CheckinRecord[] = JSON.parse(data);
-      // Strip legacy mock records
-      const filtered = parsed.filter((r) => !['c1', 'c2', 'c3'].includes(r.id));
-      if (filtered.length !== parsed.length) {
-        localStorage.setItem(CHECKINS_KEY, JSON.stringify(filtered));
+  /**
+   * Start listening to Firestore in real-time.
+   * Call this once on app mount. Returns an unsubscribe function.
+   * Every time a student checks in from ANY device, the teacher's ledger updates instantly.
+   */
+  startRealtimeSync(): () => void {
+    if (_firestoreUnsub) _firestoreUnsub(); // clean up old listener
+
+    const q = query(
+      collection(db, CHECKINS_COLLECTION),
+      orderBy('timestamp', 'desc')
+    );
+
+    _firestoreUnsub = onSnapshot(
+      q,
+      (snapshot) => {
+        _cachedCheckins = snapshot.docs.map((d) => d.data() as CheckinRecord);
+        this.notify(); // triggers UI re-render in AttendanceSection
+      },
+      (err) => {
+        console.error('[PANDA] Firestore real-time sync error:', err);
       }
-      return filtered;
-    } catch {
+    );
+
+    return () => {
+      if (_firestoreUnsub) {
+        _firestoreUnsub();
+        _firestoreUnsub = null;
+      }
+    };
+  },
+
+  // ── Read ──────────────────────────────────────────────────────────────────────
+
+  /** Returns the in-memory cache (kept fresh by startRealtimeSync). */
+  getCheckins(): CheckinRecord[] {
+    return _cachedCheckins;
+  },
+
+  /** One-time fetch from Firestore (used for initial load before listener fires). */
+  async fetchCheckins(): Promise<CheckinRecord[]> {
+    try {
+      const q = query(
+        collection(db, CHECKINS_COLLECTION),
+        orderBy('timestamp', 'desc')
+      );
+      const snap = await getDocs(q);
+      _cachedCheckins = snap.docs.map((d) => d.data() as CheckinRecord);
+      this.notify();
+      return _cachedCheckins;
+    } catch (e) {
+      console.error('[PANDA] Firestore fetch error:', e);
       return [];
     }
   },
 
-  _saveCheckins(records: CheckinRecord[]) {
-    localStorage.setItem(CHECKINS_KEY, JSON.stringify(records));
-    this.notify();
-  },
+  // ── Add check-in (called from StudentScanPortal on student's device) ──────────
 
-  // ── Add check-in (called from StudentScanPortal on student's device) ─────────
-
-  addCheckin(
+  async addCheckin(
     name: string,
     rollNumber: string,
     scannedCode: string
-  ): { success: boolean; error?: string } {
-    // The code in the QR URL is the authority. No localStorage comparison needed
-    // because the student's browser has its own localStorage.
+  ): Promise<{ success: boolean; error?: string }> {
     if (!scannedCode || !scannedCode.trim()) {
       return { success: false, error: 'Missing scanner code. Please scan the QR code again.' };
     }
 
-    const records = this.getCheckins();
+    const normalizedRoll = rollNumber.trim().toUpperCase();
+    const normalizedCode = scannedCode.trim();
 
-    // Duplicate check
-    const dup = records.find(
+    // Duplicate check — query against current cached list
+    const dup = _cachedCheckins.find(
       (r) =>
-        r.rollNumber.trim().toLowerCase() === rollNumber.trim().toLowerCase() &&
-        r.scannerId === scannedCode.trim()
+        r.rollNumber.toUpperCase() === normalizedRoll &&
+        r.scannerId === normalizedCode
     );
     if (dup) {
-      return { success: false, error: `Roll Number ${rollNumber} has already checked in.` };
+      return { success: false, error: `Roll Number ${normalizedRoll} has already checked in.` };
     }
 
     const newRecord: CheckinRecord = {
       id: 'r-' + Date.now(),
       name: name.trim(),
-      rollNumber: rollNumber.trim().toUpperCase(),
+      rollNumber: normalizedRoll,
       timestamp: new Date().toISOString(),
-      scannerId: scannedCode.trim(),
+      scannerId: normalizedCode,
     };
 
-    const updated = [newRecord, ...records];
-    this._saveCheckins(updated);
-
-    // Push to cloud so teacher's dashboard can pull it
-    this._mergeAndPushToCloud(newRecord);
-
-    return { success: true };
-  },
-
-  // ── Cloud sync ───────────────────────────────────────────────────────────────
-
-  /**
-   * Fetch cloud records, merge with local, save locally, and push the merged
-   * result back to cloud. This ensures every device eventually has all records.
-   */
-  async fetchCloudCheckins(): Promise<CheckinRecord[]> {
     try {
-      const res = await fetch(SYNC_URL);
-
-      if (res.ok) {
-        const text = await res.text();
-        if (text && text.trim() !== '') {
-          const cloudData: CheckinRecord[] = JSON.parse(text);
-          if (Array.isArray(cloudData) && cloudData.length > 0) {
-            const local = this.getCheckins();
-            const merged = this._merge(cloudData, local);
-            this._saveCheckins(merged);
-            return merged;
-          }
-        }
-      }
+      // Write to Firestore — this triggers the real-time listener on the
+      // teacher's dashboard INSTANTLY across all devices.
+      await setDoc(doc(db, CHECKINS_COLLECTION, newRecord.id), newRecord);
+      return { success: true };
     } catch (e) {
-      console.warn('[PANDA] Cloud fetch failed — using local only.', e);
+      console.error('[PANDA] Firestore write error:', e);
+      return { success: false, error: 'Failed to save check-in. Please try again.' };
     }
-    return this.getCheckins();
   },
 
-  /**
-   * Called after a student check-in: fetch cloud first, add the new record,
-   * then push the merged list back. This prevents overwriting other students.
-   */
-  async _mergeAndPushToCloud(newRecord: CheckinRecord) {
+  // ── Clear all records ─────────────────────────────────────────────────────────
+
+  async clearDatabase(): Promise<void> {
     try {
-      let cloudData: CheckinRecord[] = [];
-      const res = await fetch(SYNC_URL);
-      if (res.ok) {
-        const text = await res.text();
-        if (text && text.trim() !== '') {
-          const parsed = JSON.parse(text);
-          if (Array.isArray(parsed)) cloudData = parsed;
-        }
-      }
-
-      // Merge: cloud first so we don't lose other students
-      const merged = this._merge(cloudData, [newRecord]);
-      await this._pushToCloud(merged);
-
-      // Also update local so teacher dashboard sees it immediately if same browser
-      this._saveCheckins(this._merge(this.getCheckins(), [newRecord]));
+      const snap = await getDocs(collection(db, CHECKINS_COLLECTION));
+      const deletes = snap.docs.map((d) => deleteDoc(doc(db, CHECKINS_COLLECTION, d.id)));
+      await Promise.all(deletes);
+      // Cache clears automatically via the real-time listener
     } catch (e) {
-      console.warn('[PANDA] Cloud push failed — record saved locally only.', e);
+      console.error('[PANDA] Firestore clear error:', e);
     }
   },
 
-  async _pushToCloud(records: CheckinRecord[]) {
-    await fetch(SYNC_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(records),
-    });
-  },
-
-  /** Merge two arrays of records deduped by id, newest first. */
-  _merge(a: CheckinRecord[], b: CheckinRecord[]): CheckinRecord[] {
-    const combined = [...a, ...b];
-    const unique = combined.filter(
-      (v, i, arr) => arr.findIndex((t) => t.id === v.id) === i
-    );
-    unique.sort(
-      (x, y) => new Date(y.timestamp).getTime() - new Date(x.timestamp).getTime()
-    );
-    return unique;
-  },
-
-  // ── Clear all records ────────────────────────────────────────────────────────
-
-  async clearDatabase() {
-    this._saveCheckins([]);
-    try {
-      await this._pushToCloud([]);
-    } catch {
-      /* ignore */
-    }
-  },
-
-  // ── Pub/Sub ──────────────────────────────────────────────────────────────────
+  // ── Pub/Sub ───────────────────────────────────────────────────────────────────
 
   subscribe(listener: Listener): () => void {
     listeners.add(listener);

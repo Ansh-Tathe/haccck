@@ -30,7 +30,7 @@ export const StudentScanPortal: React.FC<StudentScanPortalProps> = ({ scannerId 
 
     // Simulate network delay to look premium
     setTimeout(async () => {
-      const res = checkinStore.addCheckin(name, roll, scannerId);
+      const res = await checkinStore.addCheckin(name, roll, scannerId);
       setLoading(false);
       if (res.success) {
         setSuccess(true);
@@ -40,6 +40,7 @@ export const StudentScanPortal: React.FC<StudentScanPortalProps> = ({ scannerId 
         setError(res.error || 'Check-in failed.');
       }
     }, 1200);
+
   };
 
   return (

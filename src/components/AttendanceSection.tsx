@@ -20,25 +20,20 @@ export const AttendanceSection: React.FC<AttendanceSectionProps> = ({ onBack }) 
   const [recentLogs, setRecentLogs] = useState<string[]>([]);
 
   useEffect(() => {
-    setCheckins(checkinStore.getCheckins());
     setActiveScanner(checkinStore.getActiveScanner());
 
+    // Subscribe to in-memory cache updates (fired by Firestore real-time listener)
     const unsubscribe = checkinStore.subscribe(() => {
       setCheckins(checkinStore.getCheckins());
       setActiveScanner(checkinStore.getActiveScanner());
     });
 
-    // Fetch from cloud immediately, then every 2 seconds
-    const syncCloud = async () => {
-      await checkinStore.fetchCloudCheckins();
-    };
-
-    syncCloud();
-    const cloudInterval = setInterval(syncCloud, 2000);
+    // Start Firestore real-time listener — ledger updates instantly on ANY device check-in
+    const stopSync = checkinStore.startRealtimeSync();
 
     return () => {
       unsubscribe();
-      clearInterval(cloudInterval);
+      stopSync();
     };
   }, []);
 
@@ -147,7 +142,7 @@ export const AttendanceSection: React.FC<AttendanceSectionProps> = ({ onBack }) 
                 <p className="text-xs text-zinc-550 mb-4">Scan client code and submit credential inputs to register attendance.</p>
                 
                 <form 
-                  onSubmit={(e) => {
+                  onSubmit={async (e) => {
                     e.preventDefault();
                     if (!studentName.trim() || !studentRoll.trim()) {
                       setFormError('Please fill out all form inputs.');
@@ -157,18 +152,16 @@ export const AttendanceSection: React.FC<AttendanceSectionProps> = ({ onBack }) 
                       setFormError('No active scanner session.');
                       return;
                     }
-                    const res = checkinStore.addCheckin(studentName, studentRoll, activeScanner.codeValue);
+                    const res = await checkinStore.addCheckin(studentName, studentRoll, activeScanner.codeValue);
                     if (res.success) {
                       setFormError(null);
                       setFormSuccess(true);
                       setStudentName('');
                       setStudentRoll('');
-                      
                       setRecentLogs([
-                        `${studentName.trim()} (${studentRoll.trim().toUpperCase()}) checked in successfully.`, 
+                        `${studentName.trim()} (${studentRoll.trim().toUpperCase()}) checked in successfully.`,
                         ...recentLogs
                       ]);
-                      
                       setTimeout(() => setFormSuccess(false), 3000);
                     } else {
                       setFormError(res.error || 'Failed to submit check-in.');
