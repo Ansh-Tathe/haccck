@@ -130,20 +130,24 @@ export const checkinStore = {
   },
 
   // Submit checkin form
-  addCheckin(name: string, rollNumber: string, scannerId: string): { success: boolean; error?: string } {
+  addCheckin(name: string, rollNumber: string, scannerIdOrCode: string): { success: boolean; error?: string } {
     const scanner = this.getActiveScanner();
-    if (scanner.id !== scannerId && !scannerId.startsWith('sc-mock')) {
+    const isMock = scannerIdOrCode.startsWith('sc-mock');
+    const matchesCurrent = isMock || scanner.id === scannerIdOrCode || scanner.codeValue === scannerIdOrCode;
+
+    if (!matchesCurrent) {
       return { success: false, error: 'Scanner session has expired. Please scan the current code.' };
     }
-    if (Date.now() > scanner.expiresAt && !scannerId.startsWith('sc-mock')) {
+    if (Date.now() > scanner.expiresAt && !isMock) {
       this.generateNewScanner();
       return { success: false, error: 'The ticket has expired. Re-scanning new ticket...' };
     }
 
     const records = this.getCheckins();
+    const targetScannerId = isMock ? scannerIdOrCode : scanner.id;
     
     // Duplicate check
-    const duplicate = records.find(r => r.rollNumber.trim().toLowerCase() === rollNumber.trim().toLowerCase() && r.scannerId === scannerId);
+    const duplicate = records.find(r => r.rollNumber.trim().toLowerCase() === rollNumber.trim().toLowerCase() && r.scannerId === targetScannerId);
     if (duplicate) {
       return { success: false, error: `Roll Number ${rollNumber} has already checked in for this session.` };
     }
@@ -153,7 +157,7 @@ export const checkinStore = {
       name: name.trim(),
       rollNumber: rollNumber.trim().toUpperCase(),
       timestamp: new Date().toISOString(),
-      scannerId
+      scannerId: targetScannerId
     };
 
     const updated = [newRecord, ...records];

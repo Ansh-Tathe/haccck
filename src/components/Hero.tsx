@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { motion, useScroll, useTransform } from 'framer-motion';
 import { ArrowRight, Play, Users, BarChart3, Calendar, ShieldCheck } from 'lucide-react';
 import LineWaves from './LineWaves';
+import { InteractiveGlobe } from './InteractiveGlobe';
 
 // Sub-component for animating counters
 const CounterItem: React.FC<{ value: number; suffix: string; label: string; icon: React.ReactNode }> = ({ value, suffix, label, icon }) => {
@@ -60,6 +61,51 @@ const CounterItem: React.FC<{ value: number; suffix: string; label: string; icon
   );
 };
 
+const InteractiveText: React.FC<{ text: string }> = ({ text }) => {
+  const words = text.split(' ');
+  return (
+    <>
+      {words.map((word, i) => (
+        <motion.span
+          key={i}
+          className="inline-block cursor-default select-none transition-colors duration-200 hover:text-panda-maroon mr-[0.25em]"
+          whileHover={{
+            scale: 1.12,
+            y: -6,
+            rotate: [0, -3, 3, 0],
+            transition: { type: 'spring', stiffness: 350, damping: 12 }
+          }}
+        >
+          {word}
+        </motion.span>
+      ))}
+    </>
+  );
+};
+
+const InteractiveGradientText: React.FC<{ text: string }> = ({ text }) => {
+  const words = text.split(' ');
+  return (
+    <>
+      {words.map((word, i) => (
+        <motion.span
+          key={i}
+          className="gradient-text inline-block cursor-default select-none mr-[0.25em]"
+          whileHover={{
+            scale: 1.12,
+            y: -6,
+            rotate: [0, -2, 2, 0],
+            filter: 'brightness(1.2) drop-shadow(0px 4px 12px rgba(139, 0, 0, 0.25))',
+            transition: { type: 'spring', stiffness: 350, damping: 12 }
+          }}
+        >
+          {word}
+        </motion.span>
+      ))}
+    </>
+  );
+};
+
 interface HeroProps {
   onLaunchDashboard: () => void;
 }
@@ -106,52 +152,68 @@ export const Hero: React.FC<HeroProps> = ({ onLaunchDashboard }) => {
       {/* Foreground Hero Content */}
       <motion.div 
         style={{ opacity, scale }}
-        className="relative z-10 max-w-7xl mx-auto px-6 md:px-12 flex flex-col items-center justify-center flex-grow text-center"
+        className="relative z-10 max-w-7xl mx-auto px-6 md:px-12 w-full flex-grow flex items-center justify-center"
       >
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center w-full py-8 text-center lg:text-left">
+          
+          {/* LEFT COLUMN: Headline & CTA Buttons */}
+          <div className="lg:col-span-7 flex flex-col items-center lg:items-start">
+            
+            {/* Main Headline */}
+            <motion.h1
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.7, delay: 0.3 }}
+              className="font-heading font-extrabold text-4xl md:text-6xl lg:text-7xl text-zinc-900 tracking-tight leading-[1.08] mb-6"
+            >
+              <InteractiveText text="Empowering College Clubs Through" />{' '}
+              <InteractiveGradientText text="Intelligent Management." />
+            </motion.h1>
 
-        {/* Main Headline */}
-        <motion.h1
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.7, delay: 0.3 }}
-          className="font-heading font-bold text-4xl md:text-6xl lg:text-7xl text-zinc-900 max-w-4xl tracking-tight leading-[1.05] mb-6"
-        >
-          Empowering College Clubs Through{' '}
-          <span className="gradient-text">Intelligent Management.</span>
-        </motion.h1>
+            {/* Subheadline */}
+            <motion.p
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.7, delay: 0.4 }}
+              className="font-sans text-lg md:text-xl text-zinc-650 max-w-2xl mb-10 leading-relaxed"
+            >
+              Track attendance, boost engagement, automate reporting, and build stronger communities with PANDA.
+            </motion.p>
 
-        {/* Subheadline */}
-        <motion.p
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.7, delay: 0.4 }}
-          className="font-sans text-lg md:text-xl text-zinc-600 max-w-2xl mb-10 leading-relaxed"
-        >
-          Track attendance, boost engagement, automate reporting, and build stronger communities with PANDA.
-        </motion.p>
+            {/* Action Buttons */}
+            <motion.div
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.7, delay: 0.5 }}
+              className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6 z-20"
+            >
+              <button
+                onClick={onLaunchDashboard}
+                className="flex items-center gap-2 px-8 py-4 bg-zinc-900 text-white font-bold text-sm rounded-full hover:bg-zinc-800 transition-all duration-300 transform hover:-translate-y-0.5 shadow-lg shadow-zinc-950/20 group cursor-pointer"
+              >
+                Launch Dashboard
+                <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
+              </button>
+              <a
+                href="#demo"
+                className="flex items-center gap-2 px-8 py-4 bg-white hover:bg-zinc-50 text-zinc-850 font-bold text-sm rounded-full border border-zinc-200 hover:border-zinc-300 transition-all duration-300 transform hover:-translate-y-0.5 shadow-sm"
+              >
+                <Play size={14} fill="#27272a" className="text-zinc-800" />
+                Watch Demo
+              </a>
+            </motion.div>
+          </div>
 
-        {/* Action Buttons */}
-        <motion.div
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.7, delay: 0.5 }}
-          className="flex flex-col sm:flex-row items-center gap-4 sm:gap-6 z-20"
-        >
-          <button
-            onClick={onLaunchDashboard}
-            className="flex items-center gap-2 px-8 py-4 bg-zinc-900 text-white font-bold text-sm rounded-full hover:bg-zinc-800 transition-all duration-300 transform hover:-translate-y-0.5 shadow-lg shadow-zinc-950/20 group cursor-pointer"
+          {/* RIGHT COLUMN: Interactive Globe */}
+          <motion.div
+            initial={{ opacity: 0, scale: 0.92 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.8, delay: 0.5 }}
+            className="lg:col-span-5 w-full flex items-center justify-center overflow-hidden"
           >
-            Launch Dashboard
-            <ArrowRight size={16} className="group-hover:translate-x-1 transition-transform" />
-          </button>
-          <a
-            href="#demo"
-            className="flex items-center gap-2 px-8 py-4 bg-white hover:bg-zinc-50 text-zinc-850 font-bold text-sm rounded-full border border-zinc-200 hover:border-zinc-300 transition-all duration-300 transform hover:-translate-y-0.5 shadow-sm"
-          >
-            <Play size={14} fill="#27272a" className="text-zinc-800" />
-            Watch Demo
-          </a>
-        </motion.div>
+            <InteractiveGlobe />
+          </motion.div>
+        </div>
       </motion.div>
 
       {/* Statistics Section */}
