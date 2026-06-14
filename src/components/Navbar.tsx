@@ -5,9 +5,10 @@ import { PandaLogo } from './PandaLogo';
 
 interface NavbarProps {
   onLaunchDashboard: () => void;
+  onLaunchAttendance: () => void;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({ onLaunchDashboard }) => {
+export const Navbar: React.FC<NavbarProps> = ({ onLaunchDashboard, onLaunchAttendance }) => {
   const [scrolled, setScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -57,6 +58,9 @@ export const Navbar: React.FC<NavbarProps> = ({ onLaunchDashboard }) => {
                 if (item.name === 'Dashboard') {
                   e.preventDefault();
                   onLaunchDashboard();
+                } else if (item.name === 'Attendance') {
+                  e.preventDefault();
+                  onLaunchAttendance();
                 }
               }}
               className="relative font-sans text-sm text-zinc-600 hover:text-zinc-900 transition-colors duration-200 py-1 group"
@@ -107,6 +111,9 @@ export const Navbar: React.FC<NavbarProps> = ({ onLaunchDashboard }) => {
                     if (item.name === 'Dashboard') {
                       e.preventDefault();
                       onLaunchDashboard();
+                    } else if (item.name === 'Attendance') {
+                      e.preventDefault();
+                      onLaunchAttendance();
                     }
                   }}
                   className="font-heading text-lg text-zinc-800 hover:text-zinc-950 transition-colors duration-200"

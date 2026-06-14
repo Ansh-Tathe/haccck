@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { checkinStore } from '../utils/checkinStore';
-import type { CheckinRecord, ScannerState } from '../utils/checkinStore';
+import type { CheckinRecord } from '../utils/checkinStore';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip as ChartTooltip, ResponsiveContainer, CartesianGrid
 } from 'recharts';
 import { 
-  Users, Calendar, QrCode, BrainCircuit, ArrowLeft, Search, Bell, CircleDot, Plus, 
-  CheckCircle2, TrendingUp, LogOut, Check, ShieldAlert
+  Users, Calendar, BrainCircuit, ArrowLeft, Search, Bell, CircleDot, Plus, 
+  TrendingUp, LogOut, Check
 } from 'lucide-react';
 
 interface Member {
@@ -35,7 +35,7 @@ interface InteractiveDashboardProps {
 }
 
 export const InteractiveDashboard: React.FC<InteractiveDashboardProps> = ({ onBack }) => {
-  const [activeTab, setActiveTab] = useState<'overview' | 'members' | 'events' | 'scanner' | 'ai'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'members' | 'events' | 'ai'>('overview');
   const [searchQuery, setSearchQuery] = useState('');
   
   // 1. Core States (Members & Events)
@@ -77,45 +77,23 @@ export const InteractiveDashboard: React.FC<InteractiveDashboardProps> = ({ onBa
 
   // 4b. Separate Storage Scanner System States
   const [checkins, setCheckins] = useState<CheckinRecord[]>([]);
-  const [activeScanner, setActiveScanner] = useState<ScannerState | null>(null);
-  const [timeLeft, setTimeLeft] = useState<number>(0);
-  const [studentName, setStudentName] = useState('');
-  const [studentRoll, setStudentRoll] = useState('');
-  const [formError, setFormError] = useState<string | null>(null);
-  const [formSuccess, setFormSuccess] = useState(false);
 
   useEffect(() => {
     setCheckins(checkinStore.getCheckins());
-    setActiveScanner(checkinStore.getActiveScanner());
 
     const unsubscribe = checkinStore.subscribe(() => {
       setCheckins(checkinStore.getCheckins());
-      setActiveScanner(checkinStore.getActiveScanner());
     });
-
-    const updateTimer = () => {
-      const scanner = checkinStore.getActiveScanner();
-      const diff = Math.max(0, Math.floor((scanner.expiresAt - Date.now()) / 1000));
-      setTimeLeft(diff);
-      
-      if (diff === 0) {
-        checkinStore.generateNewScanner();
-      }
-    };
 
     const syncCloud = () => {
       checkinStore.fetchCloudCheckins();
     };
 
-    updateTimer();
     syncCloud();
-    
-    const interval = setInterval(updateTimer, 1000);
     const cloudInterval = setInterval(syncCloud, 4000);
 
     return () => {
       unsubscribe();
-      clearInterval(interval);
       clearInterval(cloudInterval);
     };
   }, []);
@@ -299,17 +277,7 @@ export const InteractiveDashboard: React.FC<InteractiveDashboardProps> = ({ onBa
                 <span>Events Planner</span>
               </button>
 
-              <button
-                onClick={() => setActiveTab('scanner')}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold text-left transition-all ${
-                  activeTab === 'scanner' 
-                    ? 'bg-zinc-900 text-white shadow-sm' 
-                    : 'text-zinc-650 hover:bg-zinc-200/50 hover:text-zinc-900'
-                }`}
-              >
-                <QrCode size={14} className={activeTab === 'scanner' ? 'text-panda-maroon' : ''} />
-                <span>Check-in Scanner</span>
-              </button>
+
 
               <button
                 onClick={() => setActiveTab('ai')}
@@ -734,251 +702,7 @@ export const InteractiveDashboard: React.FC<InteractiveDashboardProps> = ({ onBa
                 </motion.div>
               )}
 
-              {/* CHECK-IN SCANNER SIMULATOR TAB */}
-              {activeTab === 'scanner' && (
-                <motion.div
-                  key="scanner"
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  className="max-w-5xl mx-auto flex flex-col gap-8 py-4 text-left"
-                >
-                  <div className="text-left">
-                    <h2 className="text-lg font-bold text-zinc-900">Dynamic Ticket Scanner & Registry</h2>
-                    <p className="text-xs text-zinc-500 mt-1">
-                      Manage temporary expirable tickets and register manual check-in records using the separate datastore system.
-                    </p>
-                  </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-12 gap-8 items-start">
-                    {/* LEFT PANEL: The Expirable Code Scanner Display */}
-                    <div className="md:col-span-5 p-6 bg-white border border-zinc-200 rounded-3xl shadow-sm flex flex-col items-center justify-center relative overflow-hidden h-[380px]">
-                      <div className="absolute inset-0 grid-bg opacity-30 pointer-events-none" />
-                      
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-panda-maroon mb-2 z-10 flex items-center gap-1.5">
-                        <span className="w-1.5 h-1.5 rounded-full bg-panda-maroon animate-ping" />
-                        Expirable Scanner Session
-                      </span>
-
-                      {/* Animated radar circles & QR code */}
-                      <div className="relative w-40 h-40 rounded-full border border-zinc-100 flex items-center justify-center mb-4 z-10">
-                        <div className="absolute inset-0 rounded-full border-2 border-dashed border-zinc-200 animate-spin-slow pointer-events-none" />
-                        
-                        <div className="w-28 h-28 rounded-full bg-zinc-50 border border-zinc-200 flex items-center justify-center relative overflow-hidden">
-                          {activeScanner ? (
-                            <img
-                              src={`https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(
-                                `${window.location.origin}/?scan=true&code=${activeScanner.codeValue}`
-                              )}`}
-                              alt="Active Scanner QR Code"
-                              className="w-20 h-20 object-contain"
-                            />
-                          ) : (
-                            <QrCode size={40} className="text-zinc-400 animate-pulse" />
-                          )}
-                          <motion.div
-                            animate={{ top: ['10%', '90%', '10%'] }}
-                            transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
-                            className="absolute left-2 right-2 h-[2px] bg-panda-maroon shadow-md shadow-panda-maroon/40"
-                          />
-                        </div>
-                      </div>
-
-                      {/* Code text & dynamic expiry timer */}
-                      <div className="text-center z-10 w-full flex flex-col gap-1.5">
-                        <span className="font-mono text-xs font-bold bg-zinc-100 border border-zinc-200 px-3 py-1 rounded-lg text-zinc-800 tracking-wider select-all mx-auto">
-                          {activeScanner?.codeValue || 'LOADING...'}
-                        </span>
-                        
-                        {/* Timer Countdown */}
-                        <div className="flex items-center justify-center gap-2 mt-1">
-                          <span className={`text-xs font-bold font-mono px-2 py-0.5 rounded ${
-                            timeLeft < 30 ? 'bg-red-50 text-red-600 animate-pulse' : 'bg-zinc-150 text-zinc-655'
-                          }`}>
-                            Expires in {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
-                          </span>
-                        </div>
-                        
-                        <button
-                          onClick={() => checkinStore.generateNewScanner()}
-                          className="text-[10px] font-bold text-panda-maroon hover:underline mt-2 cursor-pointer transition-all self-center font-sans"
-                        >
-                          Manual Regenerate Scanner
-                        </button>
-                        
-                        {activeScanner && (
-                          <div className="text-center mt-2 border-t border-zinc-100 pt-2 shrink-0">
-                            <span className="text-[8px] text-zinc-450 font-sans uppercase font-bold tracking-wider block">Scan Portal URL (copy/click for testing)</span>
-                            <a 
-                              href={`${window.location.origin}/?scan=true&code=${activeScanner.codeValue}`}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-[9px] text-panda-maroon font-mono hover:underline break-all mt-0.5 inline-block max-w-[210px] truncate"
-                            >
-                              {window.location.origin}/?scan=true&code={activeScanner.codeValue}
-                            </a>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* RIGHT PANEL: Student Check-in Form */}
-                    <div className="md:col-span-7 p-6 bg-white border border-zinc-200 rounded-3xl shadow-sm h-[380px] flex flex-col justify-between">
-                      <div>
-                        <h3 className="text-sm font-bold text-zinc-900 mb-1">Student Check-in Form</h3>
-                        <p className="text-xs text-zinc-500 mb-4">Scan client code and submit credential inputs to register attendance.</p>
-                        
-                        <form 
-                          onSubmit={(e) => {
-                            e.preventDefault();
-                            if (!studentName.trim() || !studentRoll.trim()) {
-                              setFormError('Please fill out all form inputs.');
-                              return;
-                            }
-                            if (!activeScanner) {
-                              setFormError('No active scanner session.');
-                              return;
-                            }
-                            const res = checkinStore.addCheckin(studentName, studentRoll, activeScanner.id);
-                            if (res.success) {
-                              setFormError(null);
-                              setFormSuccess(true);
-                              setStudentName('');
-                              setStudentRoll('');
-                              
-                              setRecentLogs([
-                                `${studentName.trim()} (${studentRoll.trim().toUpperCase()}) checked in successfully.`, 
-                                ...recentLogs
-                              ]);
-                              
-                              setTimeout(() => setFormSuccess(false), 3000);
-                            } else {
-                              setFormError(res.error || 'Failed to submit check-in.');
-                              setTimeout(() => setFormError(null), 4000);
-                            }
-                          }}
-                          className="flex flex-col gap-4 text-left"
-                        >
-                          <div>
-                            <label className="text-[10px] uppercase font-bold text-zinc-500 block mb-1">Full Student Name</label>
-                            <input
-                              type="text"
-                              required
-                              value={studentName}
-                              onChange={(e) => setStudentName(e.target.value)}
-                              placeholder="e.g. John Doe"
-                              className="w-full px-3 py-2 border border-zinc-200 rounded-xl text-xs outline-none focus:border-panda-maroon transition-colors"
-                            />
-                          </div>
-                          
-                          <div>
-                            <label className="text-[10px] uppercase font-bold text-zinc-500 block mb-1">Roll / ID Number</label>
-                            <input
-                              type="text"
-                              required
-                              value={studentRoll}
-                              onChange={(e) => setStudentRoll(e.target.value)}
-                              placeholder="e.g. CS2024-041"
-                              className="w-full px-3 py-2 border border-zinc-200 rounded-xl text-xs outline-none focus:border-panda-maroon transition-colors"
-                            />
-                          </div>
-
-                          <button
-                            type="submit"
-                            className="w-full py-2.5 bg-zinc-900 hover:bg-zinc-800 text-white font-bold text-xs rounded-xl shadow-xs transition-all mt-1 cursor-pointer"
-                          >
-                            Submit Scan Check-in
-                          </button>
-                        </form>
-                      </div>
-
-                      {/* Success / Error notification bar */}
-                      <div className="h-10 mt-3">
-                        <AnimatePresence mode="wait">
-                          {formSuccess && (
-                            <motion.div
-                              initial={{ opacity: 0, y: 5 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              exit={{ opacity: 0, y: -5 }}
-                              className="flex items-center gap-2 p-2 rounded-xl bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-bold justify-center"
-                            >
-                              <CheckCircle2 size={14} />
-                              <span>Attendance Registered Successfully! (+150 XP)</span>
-                            </motion.div>
-                          )}
-                          
-                          {formError && (
-                            <motion.div
-                              initial={{ opacity: 0, y: 5 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              exit={{ opacity: 0, y: -5 }}
-                              className="flex items-center gap-2 p-2 rounded-xl bg-red-50 text-red-800 border border-red-200 text-xs font-bold justify-center"
-                            >
-                              <ShieldAlert size={14} />
-                              <span>{formError}</span>
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* BOTTOM PANEL: Live check-in ledger records list */}
-                  <div className="p-6 bg-white border border-zinc-200 rounded-3xl shadow-sm text-left">
-                    <div className="flex items-center justify-between mb-4">
-                      <div>
-                        <h3 className="text-sm font-bold text-zinc-900">Separate Registry Storage Ledger</h3>
-                        <p className="text-xs text-zinc-500">Live query rows fetched from local browser localStorage state.</p>
-                      </div>
-                      
-                      <button
-                        onClick={() => {
-                          checkinStore.clearDatabase();
-                          setRecentLogs(['Roster storage database cleared.', ...recentLogs]);
-                        }}
-                        className="px-3.5 py-2 border border-zinc-200 hover:bg-zinc-50 text-zinc-655 hover:text-zinc-900 font-bold text-[10px] rounded-xl transition-all cursor-pointer"
-                      >
-                        Reset Local Database
-                      </button>
-                    </div>
-
-                    {checkins.length === 0 ? (
-                      <div className="py-10 text-center text-zinc-400 text-xs font-medium border border-dashed border-zinc-150 rounded-2xl bg-[#F8F9FA]/40">
-                        No checked in entries found inside the store.
-                      </div>
-                    ) : (
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-xs">
-                          <thead>
-                            <tr className="border-b border-zinc-100 text-zinc-400 uppercase font-mono text-[9px]">
-                              <th className="py-2.5 text-left font-bold">Student Name</th>
-                              <th className="py-2.5 text-left font-bold">Roll / ID Number</th>
-                              <th className="py-2.5 text-left font-bold">Scanner Session ID</th>
-                              <th className="py-2.5 text-left font-bold">Check-in Time</th>
-                              <th className="py-2.5 text-right font-bold">Status</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {checkins.map((rec) => (
-                              <tr key={rec.id} className="border-b border-zinc-100 last:border-none hover:bg-zinc-50/40 transition-colors">
-                                <td className="py-3 font-semibold text-zinc-800">{rec.name}</td>
-                                <td className="py-3 font-mono text-zinc-500 font-semibold">{rec.rollNumber}</td>
-                                <td className="py-3 font-mono text-[10px] text-zinc-450">{rec.scannerId}</td>
-                                <td className="py-3 text-zinc-450">{new Date(rec.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</td>
-                                <td className="py-3 text-right">
-                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[9px] font-bold border border-emerald-250">
-                                    <Check size={8} /> Verified
-                                  </span>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </div>
-                </motion.div>
-              )}
 
               {/* AI INSIGHT HUB TAB */}
               {activeTab === 'ai' && (

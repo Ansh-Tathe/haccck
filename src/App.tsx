@@ -13,10 +13,11 @@ import { Footer } from './components/Footer';
 import { InteractiveDashboard } from './components/InteractiveDashboard';
 import { CurvedMarquee } from './components/CurvedMarquee';
 import { StudentScanPortal } from './components/StudentScanPortal';
+import { AttendanceSection } from './components/AttendanceSection';
 
 function App() {
   const [mousePos, setMousePos] = useState({ x: -1000, y: -1000 });
-  const [viewMode, setViewMode] = useState<'landing' | 'dashboard' | 'scanPortal'>('landing');
+  const [viewMode, setViewMode] = useState<'landing' | 'dashboard' | 'scanPortal' | 'attendance'>('landing');
   const [scanCode, setScanCode] = useState<string | null>(null);
 
   useEffect(() => {
@@ -66,6 +67,11 @@ function App() {
     window.scrollTo({ top: 0 });
   };
 
+  const handleLaunchAttendance = () => {
+    setViewMode('attendance');
+    window.scrollTo({ top: 0 });
+  };
+
   return (
     <div className="relative min-h-screen bg-[#F8F9FA] text-zinc-900 selection:bg-panda-maroon/15 selection:text-panda-maroon">
       {/* Noise grain overlay for high-fidelity SaaS texture */}
@@ -84,10 +90,12 @@ function App() {
         <StudentScanPortal scannerId={scanCode} />
       ) : viewMode === 'dashboard' ? (
         <InteractiveDashboard onBack={() => setViewMode('landing')} />
+      ) : viewMode === 'attendance' ? (
+        <AttendanceSection onBack={() => setViewMode('landing')} />
       ) : (
         <>
           {/* Navigation Bar */}
-          <Navbar onLaunchDashboard={handleLaunchDashboard} />
+          <Navbar onLaunchDashboard={handleLaunchDashboard} onLaunchAttendance={handleLaunchAttendance} />
 
           {/* Hero Section */}
           <Hero onLaunchDashboard={handleLaunchDashboard} />
