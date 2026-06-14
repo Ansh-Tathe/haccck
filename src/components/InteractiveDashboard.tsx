@@ -79,24 +79,19 @@ export const InteractiveDashboard: React.FC<InteractiveDashboardProps> = ({ onBa
   const [checkins, setCheckins] = useState<CheckinRecord[]>([]);
 
   useEffect(() => {
-    setCheckins(checkinStore.getCheckins());
-
     const unsubscribe = checkinStore.subscribe(() => {
       setCheckins(checkinStore.getCheckins());
     });
 
-    const syncCloud = () => {
-      checkinStore.fetchCloudCheckins();
-    };
-
-    syncCloud();
-    const cloudInterval = setInterval(syncCloud, 4000);
+    // Start Firestore real-time listener
+    const stopSync = checkinStore.startRealtimeSync();
 
     return () => {
       unsubscribe();
-      clearInterval(cloudInterval);
+      stopSync();
     };
   }, []);
+
 
   // Sync members list with separate store records dynamically
   const updatedMembers = members.map(m => {
