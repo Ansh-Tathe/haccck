@@ -13,7 +13,6 @@ interface AttendanceSectionProps {
 export const AttendanceSection: React.FC<AttendanceSectionProps> = ({ onBack }) => {
   const [checkins, setCheckins] = useState<CheckinRecord[]>([]);
   const [activeScanner, setActiveScanner] = useState<ScannerState | null>(null);
-  const [timeLeft, setTimeLeft] = useState<number>(0);
   const [studentName, setStudentName] = useState('');
   const [studentRoll, setStudentRoll] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
@@ -29,29 +28,16 @@ export const AttendanceSection: React.FC<AttendanceSectionProps> = ({ onBack }) 
       setActiveScanner(checkinStore.getActiveScanner());
     });
 
-    const updateTimer = () => {
-      const scanner = checkinStore.getActiveScanner();
-      const diff = Math.max(0, Math.floor((scanner.expiresAt - Date.now()) / 1000));
-      setTimeLeft(diff);
-      
-      if (diff === 0) {
-        checkinStore.generateNewScanner();
-      }
-    };
-
     const syncCloud = () => {
       checkinStore.fetchCloudCheckins();
     };
 
-    updateTimer();
     syncCloud();
     
-    const interval = setInterval(updateTimer, 1000);
     const cloudInterval = setInterval(syncCloud, 4000);
 
     return () => {
       unsubscribe();
-      clearInterval(interval);
       clearInterval(cloudInterval);
     };
   }, []);
@@ -130,10 +116,8 @@ export const AttendanceSection: React.FC<AttendanceSectionProps> = ({ onBack }) 
                 
                 {/* Timer Countdown */}
                 <div className="flex items-center justify-center gap-2 mt-1">
-                  <span className={`text-xs font-bold font-mono px-2 py-0.5 rounded ${
-                    timeLeft < 30 ? 'bg-red-50 text-red-600 animate-pulse' : 'bg-zinc-150 text-zinc-655'
-                  }`}>
-                    Expires in {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
+                  <span className="text-xs font-bold font-sans px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-150">
+                    Active Stable Session
                   </span>
                 </div>
                 

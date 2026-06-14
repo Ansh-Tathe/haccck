@@ -56,10 +56,7 @@ export const checkinStore = {
     const data = localStorage.getItem(ACTIVE_SCANNER_KEY);
     if (data) {
       try {
-        const scanner: ScannerState = JSON.parse(data);
-        if (Date.now() < scanner.expiresAt) {
-          return scanner;
-        }
+        return JSON.parse(data);
       } catch {
         // Fall through
       }
@@ -67,35 +64,19 @@ export const checkinStore = {
     return this.generateNewScanner();
   },
 
-  // Generate a new scanner expiring in 5 minutes
+  // Generate a new stable scanner (never expires)
   generateNewScanner(): ScannerState {
     const now = Date.now();
-    const durationMs = 5 * 60 * 1000; // 5 minutes
+    // Set duration to 100 years so it never expires
+    const durationMs = 100 * 365 * 24 * 60 * 60 * 1000;
     const randomHash = Math.random().toString(36).substring(2, 10).toUpperCase();
     const newScanner: ScannerState = {
-      id: 'sc-' + now,
+      id: 'sc-stable',
       createdAt: now,
       expiresAt: now + durationMs,
       codeValue: `PANDA-SEC-${randomHash}`
     };
     localStorage.setItem(ACTIVE_SCANNER_KEY, JSON.stringify(newScanner));
-
-    // Also push to active scanner history list in localStorage to allow validation of recently rotated codes
-    const historyData = localStorage.getItem('panda_scanner_history');
-    let history: ScannerState[] = [];
-    if (historyData) {
-      try {
-        history = JSON.parse(historyData);
-      } catch {
-        history = [];
-      }
-    }
-    history.push(newScanner);
-    // Keep only the last 10 entries
-    if (history.length > 10) {
-      history = history.slice(history.length - 10);
-    }
-    localStorage.setItem('panda_scanner_history', JSON.stringify(history));
 
     this.notify();
     return newScanner;
@@ -154,35 +135,14 @@ export const checkinStore = {
       return this.processCheckinRecord(name, rollNumber, scannerIdOrCode);
     }
 
-    // Load scanner history to check if the code/ID corresponds to a valid session
-    const historyData = localStorage.getItem('panda_scanner_history');
-    let history: ScannerState[] = [];
-    if (historyData) {
-      try {
-        history = JSON.parse(historyData);
-      } catch {
-        history = [];
-      }
-    }
+    const scanner = this.getActiveScanner();
+    const matchesCurrent = scanner.id === scannerIdOrCode || scanner.codeValue === scannerIdOrCode;
 
-    // Include the current active scanner too
-    const active = this.getActiveScanner();
-    if (active && !history.some(h => h.id === active.id)) {
-      history.push(active);
-    }
-
-    // Find the scanner session that matches the scannerIdOrCode
-    const matchedScanner = history.find(h => h.id === scannerIdOrCode || h.codeValue === scannerIdOrCode);
-
-    if (!matchedScanner) {
+    if (!matchesCurrent) {
       return { success: false, error: 'Scanner session has expired. Please scan the current code.' };
     }
 
-    if (Date.now() > matchedScanner.expiresAt) {
-      return { success: false, error: 'The ticket has expired. Re-scanning new ticket...' };
-    }
-
-    return this.processCheckinRecord(name, rollNumber, matchedScanner.id);
+    return this.processCheckinRecord(name, rollNumber, scanner.id);
   },
 
   processCheckinRecord(name: string, rollNumber: string, scannerId: string): { success: boolean; error?: string } {
