@@ -94,20 +94,20 @@ export const checkinStore = {
     rollNumber: string,
     scannedCode: string
   ): { success: boolean; error?: string } {
-    const scanner = this.getActiveScanner();
-
-    // Accept both the codeValue (what's in the QR URL) and the id
-    const isValid =
-      scannedCode === scanner.codeValue || scannedCode === scanner.id;
-
-    if (!isValid) {
+    // The scannedCode from the QR URL is the authority.
+    // We do NOT validate against localStorage because the student's browser
+    // has its own empty localStorage - comparing against it would always fail.
+    // The QR URL itself is the "secret" - only students who physically scan
+    // the QR code get the correct code.
+    if (!scannedCode || scannedCode.trim() === '') {
       return {
         success: false,
-        error: `Invalid scanner code. Please scan the QR code again.`,
+        error: 'Missing scanner code. Please scan the QR code again.',
       };
     }
 
-    return this._processCheckin(name, rollNumber, scanner.id);
+    // Use the scanned code directly as the session ID for grouping records
+    return this._processCheckin(name, rollNumber, scannedCode.trim());
   },
 
   _processCheckin(
