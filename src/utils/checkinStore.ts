@@ -8,24 +8,61 @@ export interface CheckinRecord {
 
 export interface ScannerState {
   id: string;
-  createdAt: number; // timestamp ms
-  expiresAt: number; // timestamp ms
-  codeValue: string; // token hash
+  codeValue: string; // token shown in QR
 }
 
-// Key for local storage
+// LocalStorage keys
 const CHECKINS_KEY = 'panda_checkins_data';
 const ACTIVE_SCANNER_KEY = 'panda_active_scanner';
 
-// Public sync endpoints using KVDB key-value storage
+// Cloud sync endpoint
 const SYNC_URL = 'https://kvdb.io/panda_sync_dex_workspace_98242/checkins_v1';
 
+// Fixed scanner ID — never changes
+const FIXED_SCANNER_ID = 'sc-stable';
 
 type Listener = () => void;
 const listeners = new Set<Listener>();
 
 export const checkinStore = {
-  // Get all checkins
+  // ─── Scanner ─────────────────────────────────────────────────────────────
+
+  /**
+   * Returns the ONE persistent scanner. Creates it once and never regenerates.
+   * The codeValue is fixed for the lifetime of the localStorage, so QR codes
+   * never become stale.
+   */
+  getActiveScanner(): ScannerState {
+    const data = localStorage.getItem(ACTIVE_SCANNER_KEY);
+    if (data) {
+      try {
+        const parsed = JSON.parse(data) as ScannerState;
+        // Validate shape — must have id and codeValue
+        if (parsed.id && parsed.codeValue) {
+          return parsed;
+        }
+      } catch {
+        // Fall through to create
+      }
+    }
+    // First-time creation only
+    return this._createScanner();
+  },
+
+  /** Internal: create and persist a brand-new scanner (called once ever). */
+  _createScanner(): ScannerState {
+    const randomHash = Math.random().toString(36).substring(2, 10).toUpperCase();
+    const scanner: ScannerState = {
+      id: FIXED_SCANNER_ID,
+      codeValue: `PANDA-${randomHash}`,
+    };
+    localStorage.setItem(ACTIVE_SCANNER_KEY, JSON.stringify(scanner));
+    this.notify();
+    return scanner;
+  },
+
+  // ─── Check-ins ────────────────────────────────────────────────────────────
+
   getCheckins(): CheckinRecord[] {
     const data = localStorage.getItem(CHECKINS_KEY);
     if (!data) {
@@ -34,7 +71,7 @@ export const checkinStore = {
     }
     try {
       const parsed: CheckinRecord[] = JSON.parse(data);
-      // Filter out any mock checkins (whose ids are 'c1', 'c2', 'c3')
+      // Strip any legacy mock records
       const filtered = parsed.filter(r => !['c1', 'c2', 'c3'].includes(r.id));
       if (filtered.length !== parsed.length) {
         localStorage.setItem(CHECKINS_KEY, JSON.stringify(filtered));
@@ -45,49 +82,74 @@ export const checkinStore = {
     }
   },
 
-  // Save checkins list locally
   saveCheckins(records: CheckinRecord[]) {
     localStorage.setItem(CHECKINS_KEY, JSON.stringify(records));
     this.notify();
   },
 
-  // Get active scanner details
-  getActiveScanner(): ScannerState {
-    const data = localStorage.getItem(ACTIVE_SCANNER_KEY);
-    if (data) {
-      try {
-        return JSON.parse(data);
-      } catch {
-        // Fall through
-      }
+  // ─── Add Check-in ─────────────────────────────────────────────────────────
+
+  addCheckin(
+    name: string,
+    rollNumber: string,
+    scannedCode: string
+  ): { success: boolean; error?: string } {
+    const scanner = this.getActiveScanner();
+
+    // Accept both the codeValue (what's in the QR URL) and the id
+    const isValid =
+      scannedCode === scanner.codeValue || scannedCode === scanner.id;
+
+    if (!isValid) {
+      return {
+        success: false,
+        error: `Invalid scanner code. Please scan the QR code again.`,
+      };
     }
-    return this.generateNewScanner();
+
+    return this._processCheckin(name, rollNumber, scanner.id);
   },
 
-  // Generate a new stable scanner (never expires)
-  generateNewScanner(): ScannerState {
-    const now = Date.now();
-    // Set duration to 100 years so it never expires
-    const durationMs = 100 * 365 * 24 * 60 * 60 * 1000;
-    const randomHash = Math.random().toString(36).substring(2, 10).toUpperCase();
-    const newScanner: ScannerState = {
-      id: 'sc-stable',
-      createdAt: now,
-      expiresAt: now + durationMs,
-      codeValue: `PANDA-SEC-${randomHash}`
+  _processCheckin(
+    name: string,
+    rollNumber: string,
+    scannerId: string
+  ): { success: boolean; error?: string } {
+    const records = this.getCheckins();
+
+    // Duplicate check per session
+    const duplicate = records.find(
+      r =>
+        r.rollNumber.trim().toLowerCase() ===
+          rollNumber.trim().toLowerCase() && r.scannerId === scannerId
+    );
+    if (duplicate) {
+      return {
+        success: false,
+        error: `Roll Number ${rollNumber} has already checked in for this session.`,
+      };
+    }
+
+    const newRecord: CheckinRecord = {
+      id: 'r-' + Date.now(),
+      name: name.trim(),
+      rollNumber: rollNumber.trim().toUpperCase(),
+      timestamp: new Date().toISOString(),
+      scannerId,
     };
-    localStorage.setItem(ACTIVE_SCANNER_KEY, JSON.stringify(newScanner));
 
-    this.notify();
-    return newScanner;
+    const updated = [newRecord, ...records];
+    this.saveCheckins(updated);
+    this.pushCloudCheckins(updated);
+    return { success: true };
   },
 
-  // Sync cloud database database ledger
+  // ─── Cloud Sync ───────────────────────────────────────────────────────────
+
   async fetchCloudCheckins(): Promise<CheckinRecord[]> {
     try {
       const res = await fetch(SYNC_URL);
       if (res.status === 404) {
-        // First initialization, write mock records
         const local = this.getCheckins();
         await this.pushCloudCheckins(local);
         return local;
@@ -96,82 +158,42 @@ export const checkinStore = {
         const cloudData = await res.json();
         if (Array.isArray(cloudData)) {
           const local = this.getCheckins();
-          // Merge unique rows (by id)
           const merged = [...cloudData, ...local].filter(
             (v, i, a) => a.findIndex(t => t.id === v.id) === i
           );
-          
-          // Sort check-ins descending by timestamp
-          merged.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-
+          merged.sort(
+            (a, b) =>
+              new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+          );
           localStorage.setItem(CHECKINS_KEY, JSON.stringify(merged));
           this.notify();
           return merged;
         }
       }
     } catch (e) {
-      console.warn('Network sync offline. Syncing locally.', e);
+      console.warn('Network sync offline. Using local data.', e);
     }
     return this.getCheckins();
   },
 
-  // Push checkins to cloud database
   async pushCloudCheckins(records: CheckinRecord[]) {
     try {
       await fetch(SYNC_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(records)
+        body: JSON.stringify(records),
       });
     } catch (e) {
-      console.warn('Failed to upload checkpoints to sync cloud.', e);
+      console.warn('Cloud push failed (offline).', e);
     }
   },
 
-  // Submit checkin form
-  addCheckin(name: string, rollNumber: string, scannerIdOrCode: string): { success: boolean; error?: string } {
-    const isMock = scannerIdOrCode.startsWith('sc-mock');
-    if (isMock) {
-      return this.processCheckinRecord(name, rollNumber, scannerIdOrCode);
-    }
+  // ─── Clear ────────────────────────────────────────────────────────────────
 
-    const scanner = this.getActiveScanner();
-    const matchesCurrent = scanner.id === scannerIdOrCode || scanner.codeValue === scannerIdOrCode;
-
-    if (!matchesCurrent) {
-      return { success: false, error: 'Scanner session has expired. Please scan the current code.' };
-    }
-
-    return this.processCheckinRecord(name, rollNumber, scanner.id);
-  },
-
-  processCheckinRecord(name: string, rollNumber: string, scannerId: string): { success: boolean; error?: string } {
-    const records = this.getCheckins();
-    
-    // Duplicate check
-    const duplicate = records.find(r => r.rollNumber.trim().toLowerCase() === rollNumber.trim().toLowerCase() && r.scannerId === scannerId);
-    if (duplicate) {
-      return { success: false, error: `Roll Number ${rollNumber} has already checked in for this session.` };
-    }
-
-    const newRecord: CheckinRecord = {
-      id: 'r-' + Date.now(),
-      name: name.trim(),
-      rollNumber: rollNumber.trim().toUpperCase(),
-      timestamp: new Date().toISOString(),
-      scannerId
-    };
-
-    const updated = [newRecord, ...records];
-    this.saveCheckins(updated);
-
-    // Push updates asynchronously to cloud key-value store
-    this.pushCloudCheckins(updated);
-
-    return { success: true };
-  },
-
-  // Clear database
+  /**
+   * Clears all attendance records but keeps the same scanner alive.
+   * The QR code URL does NOT change.
+   */
   async clearDatabase() {
     localStorage.setItem(CHECKINS_KEY, JSON.stringify([]));
     this.notify();
@@ -180,10 +202,10 @@ export const checkinStore = {
     } catch {
       // Ignore
     }
-    this.generateNewScanner();
   },
 
-  // Subscribe to changes
+  // ─── Pub/Sub ──────────────────────────────────────────────────────────────
+
   subscribe(listener: Listener): () => void {
     listeners.add(listener);
     return () => {
@@ -193,5 +215,5 @@ export const checkinStore = {
 
   notify() {
     listeners.forEach(l => l());
-  }
+  },
 };

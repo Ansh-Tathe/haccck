@@ -121,12 +121,7 @@ export const AttendanceSection: React.FC<AttendanceSectionProps> = ({ onBack }) 
                   </span>
                 </div>
                 
-                <button
-                  onClick={() => checkinStore.generateNewScanner()}
-                  className="text-[10px] font-bold text-panda-maroon hover:underline mt-2 cursor-pointer transition-all self-center font-sans border-none bg-transparent"
-                >
-                  Manual Regenerate Scanner
-                </button>
+
                 
                 {activeScanner && (
                   <div className="text-center mt-2 border-t border-zinc-100 pt-2 shrink-0">
@@ -161,7 +156,7 @@ export const AttendanceSection: React.FC<AttendanceSectionProps> = ({ onBack }) 
                       setFormError('No active scanner session.');
                       return;
                     }
-                    const res = checkinStore.addCheckin(studentName, studentRoll, activeScanner.id);
+                    const res = checkinStore.addCheckin(studentName, studentRoll, activeScanner.codeValue);
                     if (res.success) {
                       setFormError(null);
                       setFormSuccess(true);
