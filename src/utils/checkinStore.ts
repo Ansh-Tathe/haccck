@@ -7,7 +7,6 @@ import {
   deleteDoc,
   query,
   orderBy,
-  Unsubscribe,
 } from 'firebase/firestore';
 import { db } from './firebase';
 
@@ -39,7 +38,7 @@ const listeners = new Set<Listener>();
 
 // In-memory cache of checkins (kept fresh by the Firestore real-time listener)
 let _cachedCheckins: CheckinRecord[] = [];
-let _firestoreUnsub: Unsubscribe | null = null;
+let _firestoreUnsub: (() => void) | null = null;
 
 // ─── Store ────────────────────────────────────────────────────────────────────
 export const checkinStore = {
